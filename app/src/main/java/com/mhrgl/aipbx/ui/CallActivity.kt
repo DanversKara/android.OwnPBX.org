@@ -1,10 +1,12 @@
 package com.mhrgl.aipbx.ui
 
+import android.Manifest
 import android.app.AlertDialog
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioDeviceCallback
 import android.media.AudioDeviceInfo
@@ -27,6 +29,7 @@ import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -63,6 +66,21 @@ class CallActivity : BaseActivity(), SipEngineListener {
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
     private var toneGenerator: ToneGenerator? = null
+
+    /**
+     * Safety net for the startup permission ask in DialerActivity: if
+     * BLUETOOTH_CONNECT was denied or revoked, the call screen asks once here
+     * so the routing below can actually see a Bluetooth headset. On grant the
+     * route is re-applied; on denial the call just stays on earpiece/speaker.
+     */
+    private val bluetoothPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            Log.d("CallActivity", "BLUETOOTH_CONNECT granted, re-applying audio routing")
+            applyAudioRouting(isSpeakerOn)
+        } else {
+            Log.d("CallActivity", "BLUETOOTH_CONNECT denied, calls stay on earpiece/speaker")
+        }
+    }
 
     private val audioDeviceCallback = object : AudioDeviceCallback() {
         override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
@@ -221,6 +239,13 @@ class CallActivity : BaseActivity(), SipEngineListener {
                 )
             }
 
+            // Bluetooth headsets only appear in availableCommunicationDevices when the
+            // app holds BLUETOOTH_CONNECT (Android 12+). Ask now if it is missing; the
+            // route is re-applied when the answer comes back (see launcher above).
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                bluetoothPermissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+            }
             // The audio route is applied RIGHT AFTER audio focus is granted (default is always the EARPIECE)
             applyAudioRouting(false)
         } catch (e: Exception) {
@@ -264,7 +289,8 @@ class CallActivity : BaseActivity(), SipEngineListener {
                         it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
                     }
                     if (speakerDevice != null) {
-                        audioManager.setCommunicationDevice(speakerDevice)
+                        val setOk = audioManager.setCommunicationDevice(speakerDevice)
+                        Log.d("CallActivity", "Selected speaker device, set=$setOk")
                     } else {
                         audioManager.clearCommunicationDevice()
                     }
@@ -290,8 +316,8 @@ class CallActivity : BaseActivity(), SipEngineListener {
                     }
 
                     if (targetDevice != null) {
-                        Log.d("CallActivity", "Selected communication device: type=${targetDevice.type} name=${targetDevice.productName}")
-                        audioManager.setCommunicationDevice(targetDevice)
+                        val setOk = audioManager.setCommunicationDevice(targetDevice)
+                        Log.d("CallActivity", "Selected communication device: type=${targetDevice.type} name=${targetDevice.productName} set=$setOk")
                     } else {
                         audioManager.clearCommunicationDevice()
                     }
