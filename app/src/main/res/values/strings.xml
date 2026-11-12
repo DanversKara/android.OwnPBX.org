@@ -537,4 +537,8 @@
     <string name="call_from_use">Use for calls</string>
     <string name="call_from_make_default">Make default</string>
     <string name="call_from_default_saved">Default number saved</string>
+    <string name="dnd_for_how_long">Do not disturb for…</string>
+    <string name="dnd_until_off">Until I turn it off</string>
+    <string name="dnd_minutes">%1$d min</string>
+    <string name="dnd_hours">%1$d h</string>
 </resources>

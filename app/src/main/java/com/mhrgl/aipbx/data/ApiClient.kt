@@ -930,7 +930,8 @@ class ApiClient(private val prefsProvider: (() -> AppPreferences?)? = null) {
         cfBusyNumber: String = "",
         cfNoAnswerNumber: String = "",
         cfNoAnswerTimeout: Int = 20,
-        phoneMode: String = "both"
+        phoneMode: String = "both",
+        dndMinutes: Int? = null
     ): Result<FeaturesResponse> = withContext(Dispatchers.IO) {
         try {
             val cleanUrl = baseUrl.trim().trimEnd('/')
@@ -943,6 +944,8 @@ class ApiClient(private val prefsProvider: (() -> AppPreferences?)? = null) {
                 put("cf_noanswer_number", cfNoAnswerNumber.trim())
                 put("cf_noanswer_timeout", cfNoAnswerTimeout)
                 put("allowed_phone_mode", phoneMode)
+                // DND for a while: 0 = until turned off; left out = keep the running timer.
+                if (dndMinutes != null) put("dnd_minutes", dndMinutes)
             }.toString()
 
             val request = Request.Builder()

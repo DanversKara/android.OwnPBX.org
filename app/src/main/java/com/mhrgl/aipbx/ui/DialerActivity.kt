@@ -146,6 +146,7 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
     private enum class ChatFilter { ALL, DIRECT, GROUP }
     private var chatFilterMode = ChatFilter.ALL
     private var isDndEnabled = false
+    private var dndMinutesLeft = 0
     private var currentForwardAlways = ""
     private var currentForwardBusy = ""
     private var currentForwardNoAnswer = ""
@@ -2178,7 +2179,7 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
         // 3. DND Switch
         binding.switchDnd.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked != isDndEnabled) {
-                updateFeaturesOnServer(dnd = isChecked)
+                if (isChecked) showDndDurationPicker() else updateFeaturesOnServer(dnd = false)
             }
         }
 
@@ -2319,6 +2320,11 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
 
     private fun updateHeaderBadges() {
         binding.tvDndBadge.visibility = if (isDndEnabled) View.VISIBLE else View.GONE
+        binding.tvDndBadge.text = if (isDndEnabled && dndMinutesLeft > 0) {
+            getString(R.string.ui_dnd_active) + " · " + dndDurationLabel(dndMinutesLeft)
+        } else {
+            getString(R.string.ui_dnd_active)
+        }
 
         val hasAnyCf = currentForwardAlways.isNotEmpty() || currentForwardBusy.isNotEmpty() || currentForwardNoAnswer.isNotEmpty()
         binding.tvCfBadge.visibility = if (hasAnyCf) View.VISIBLE else View.GONE
@@ -2340,6 +2346,7 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
             result.onSuccess { res ->
                 val f = res.features ?: return@onSuccess
                 isDndEnabled = f.dndEnabled
+                dndMinutesLeft = f.dndMinutesLeft ?: 0
                 currentForwardAlways = f.callForwardNumber ?: ""
                 currentForwardBusy = f.cfBusyNumber ?: ""
                 currentForwardNoAnswer = f.cfNoAnswerNumber ?: ""
@@ -2362,12 +2369,35 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
         }
     }
 
+    private fun dndDurationLabel(minutes: Int): String = when {
+        minutes < 60 -> getString(R.string.dnd_minutes, minutes)
+        minutes % 60 == 0 -> getString(R.string.dnd_hours, minutes / 60)
+        else -> getString(R.string.dnd_hours, minutes / 60) + " " + getString(R.string.dnd_minutes, minutes % 60)
+    }
+
+    /** Turning DND on asks for how long, so it cannot be forgotten on (0 = until turned off). */
+    private fun showDndDurationPicker() {
+        val options = listOf(0, 10, 30, 60, 180, 300, 480, 600)
+        val labels = options.map<Int, CharSequence> { if (it == 0) getString(R.string.dnd_until_off) else dndDurationLabel(it) }.toTypedArray()
+        var chosen = false
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dnd_for_how_long)
+            .setItems(labels) { _, which ->
+                chosen = true
+                updateFeaturesOnServer(dnd = true, dndMinutes = options[which])
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setOnDismissListener { if (!chosen) binding.switchDnd.isChecked = isDndEnabled }
+            .show()
+    }
+
     private fun updateFeaturesOnServer(
         dnd: Boolean = isDndEnabled,
         forwardAlways: String = currentForwardAlways,
         forwardBusy: String = currentForwardBusy,
         forwardNoAnswer: String = currentForwardNoAnswer,
-        noAnswerTimeout: Int = currentNoAnswerTimeout
+        noAnswerTimeout: Int = currentNoAnswerTimeout,
+        dndMinutes: Int? = null
     ) {
         val token = prefs.token ?: return
         val baseUrl = prefs.serverUrl
@@ -2380,11 +2410,13 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
                 callForwardNumber = forwardAlways,
                 cfBusyNumber = forwardBusy,
                 cfNoAnswerNumber = forwardNoAnswer,
-                cfNoAnswerTimeout = noAnswerTimeout
+                cfNoAnswerTimeout = noAnswerTimeout,
+                dndMinutes = dndMinutes
             )
             result.onSuccess { res ->
                 val f = res.features
                 isDndEnabled = f?.dndEnabled ?: dnd
+                dndMinutesLeft = f?.dndMinutesLeft ?: 0
                 currentForwardAlways = f?.callForwardNumber ?: forwardAlways
                 currentForwardBusy = f?.cfBusyNumber ?: forwardBusy
                 currentForwardNoAnswer = f?.cfNoAnswerNumber ?: forwardNoAnswer

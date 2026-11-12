@@ -316,6 +316,8 @@ data class FeaturesResponse(
 data class FeatureSettings(
     @SerializedName("extension") val extension: String,
     @SerializedName("dnd_enabled") val dndEnabled: Boolean,
+    // Server 1.75.24+: minutes until DND switches itself off (0 / absent = no timer).
+    @SerializedName("dnd_minutes_left") val dndMinutesLeft: Int? = null,
     @SerializedName("call_forward_number") val callForwardNumber: String?,
     @SerializedName("cf_busy_number") val cfBusyNumber: String? = null,
     @SerializedName("cf_noanswer_number") val cfNoAnswerNumber: String? = null,
