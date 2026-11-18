@@ -73,6 +73,10 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
 
     // "Call from": the user's outgoing numbers, and the one picked for calls (null = the default).
     private var callerIds: List<CallerIdOption> = emptyList()
+
+    // Unread texts, remembered briefly so a burst of chat events does not ask the PBX each time.
+    private var smsUnreadCache = 0
+    private var smsUnreadAt = 0L
     private var callFrom: String? = null
 
     private var pbxService: PbxForegroundService? = null
@@ -289,6 +293,7 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
         updateFullScreenCallButton()
         refreshVoicemailBadge()
         refreshCallerIds()
+        smsUnreadAt = 0L   // coming back from the SMS screen: ask again, texts may now be read
 
         if (currentTab == Tab.HISTORY) {
             loadCallHistory(currentFilter)
@@ -419,21 +424,47 @@ class DialerActivity : BaseActivity(), SipEngineListener, ChatEventListener {
         }
     }
 
+    /**
+     * Unread counts in three places: on the Chat half and the SMS half of the Messages
+     * toggle, and together on the Chat button at the bottom. Opening Messages then shows at
+     * a glance which side is waiting, instead of a bare dot that could be either.
+     */
     private fun updateChatUnreadBadge() {
         val sUrl = prefs.serverUrl ?: return
         val token = prefs.token ?: return
         lifecycleScope.launch {
-            val res = apiClient.getChatConversations(sUrl, token)
-            res.onSuccess { list ->
-                val totalUnread = list.sumOf { it.unreadCount }
-                if (totalUnread > 0) {
-                    binding.tvChatBadge.visibility = View.VISIBLE
-                    binding.tvChatBadge.text = if (totalUnread > 9) "9+" else totalUnread.toString()
-                } else {
-                    binding.tvChatBadge.visibility = View.GONE
+            var chatUnread = 0
+            apiClient.getChatConversations(sUrl, token).onSuccess { list ->
+                chatUnread = list.sumOf { it.unreadCount }
+            }
+            // This runs again on every chat event, so the SMS side is asked at most every
+            // 15 seconds: a text that has just arrived is never more than that out of date.
+            val now = System.currentTimeMillis()
+            if (now - smsUnreadAt > 15_000) {
+                // No SMS numbers, or the plugin is off: that side simply shows no count.
+                apiClient.getSmsThreads(sUrl, token).onSuccess { res ->
+                    smsUnreadCache = res.threads?.sumOf { it.unread } ?: 0
+                    smsUnreadAt = now
                 }
             }
+            val smsUnread = smsUnreadCache
+            binding.btnMsgTabChat.text = withCount(getString(R.string.ui_chat), chatUnread)
+            binding.btnMsgTabSms.text = withCount(getString(R.string.sms_tab), smsUnread)
+            val totalUnread = chatUnread + smsUnread
+            if (totalUnread > 0) {
+                binding.tvChatBadge.visibility = View.VISIBLE
+                binding.tvChatBadge.text = if (totalUnread > 9) "9+" else totalUnread.toString()
+            } else {
+                binding.tvChatBadge.visibility = View.GONE
+            }
         }
+    }
+
+    /** "Chat" with nothing waiting, "Chat 3" with three unread, "Chat 9+" beyond that. */
+    private fun withCount(label: String, unread: Int): String = when {
+        unread <= 0 -> label
+        unread > 9 -> "$label  9+"
+        else -> "$label  $unread"
     }
 
     // ================= BOTTOM NAVIGATION =================
